@@ -105,14 +105,16 @@ function drawChats(){
 }
 async function loadChats(){const d=await api('/api/chats');state.chats=d.chats||[];drawChats();}
 let chatLoad=0;
-async function openChat(id){
+async function openChat(id,{preserveDraft=false}={}){
   if(state.busy)return toast('Aguarde ou interrompa a resposta para mudar de conversa.');
   const request=++chatLoad,d=await api(`/api/chats/${id}`);if(request!==chatLoad||state.busy)return;
+  const draft=preserveDraft&&state.chatId===id?{text:input.value,attachments:[...state.attachments]}:null;
   setMode(d.mode || 'general', false);
   state.rpgBefore=d.before||null;window.RPG?.attach(d.rpg||null);
   state.chatId=id;const savedChat=state.chats.find(c=>c.id===id);if(savedChat&&d.chat)Object.assign(savedChat,d.chat);clearAttachments();input.value='';resize();messages.replaceChildren();
   if(!d.messages.length)welcome();else{state.currentMessages=d.messages;for(const m of d.messages)addMessage(m.content,m.role);}
   window.RPG?.decorate();addOlderButton(d.hasMore);drawChats();closeDrawer();scrollToEnd(true);$('#exportChatBtn').disabled=!d.messages.length;
+  if(draft){input.value=draft.text;state.attachments=draft.attachments;drawAttachments();resize();}
 }
 async function createChat(){
   if(state.busy)return toast('Aguarde ou interrompa a resposta para criar uma conversa.');
@@ -156,7 +158,7 @@ function liveMessage(){
   let full='',shown=0,timer;const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches || state.kelly?.preferences?.motion === false;
   function tick(){if(!full)return;if(!text.isConnected)bubble.replaceChildren(text);const follow=messages.scrollHeight-messages.scrollTop-messages.clientHeight<180;shown=reduced?full.length:Math.min(full.length,shown+Math.max(4,Math.ceil((full.length-shown)/8)));text.textContent=full.slice(0,shown);if(follow)scrollToEnd(true);}
   timer=setInterval(tick,28);
-  return {row,get raw(){return full;},delta(s){full+=s;$('#status').textContent='Escrevendo…';},finish(raw,note,limited=false){clearInterval(timer);bubble.replaceChildren();const body=el('div','markdown'),controls=el('div');bubble.append(body,controls);renderMarkdown(body,raw,controls,limited);if(note)bubble.append(el('div','messageNote',note));scrollToEnd();return controls;},dispose(){clearInterval(timer);}};
+  return {row,get raw(){return full;},delta(s){full+=s;$('#status').textContent='Escrevendo…';},async reveal(raw){full=raw;const start=performance.now();while(shown<full.length&&row.isConnected&&!reduced&&performance.now()-start<1500)await new Promise(resolve=>setTimeout(resolve,28));},finish(raw,note,limited=false){clearInterval(timer);bubble.replaceChildren();const body=el('div','markdown'),controls=el('div');bubble.append(body,controls);renderMarkdown(body,raw,controls,limited);if(note)bubble.append(el('div','messageNote',note));scrollToEnd();return controls;},dispose(){clearInterval(timer);}};
 }
 async function readNDJSON(response,onEvent){
   if(!response.body)throw new Error('Seu navegador não recebeu a resposta. Atualize a página.');

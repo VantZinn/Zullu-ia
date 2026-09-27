@@ -3,7 +3,7 @@ window.RPG=(()=>{
  'use strict';
  let current=null,installed=false,pickerGeneration=0,creatingId=null,restoreBusy=false;
  const names={system:'Qual sistema e edição vamos jogar?',role:'Você vai jogar como mestre ou jogador?',setting:'Qual cenário e estilo de RPG?',tone:'Qual o tom e a intensidade da violência ficcional?',rules:'Quais regras da casa e fontes devemos seguir?',characters:'Quem são os personagens e quais os fatos iniciais?',objections:'Existe alguma objeção, limite ou tema a evitar?',dice:'Como vamos fazer as rolagens?',style:'Que estilo de narração você prefere?'};
- const eventNames={setup:'Regras da mesa',session:'Sessão confirmada',user:'Ação ou pedido',narrator:'Narração concluída',canon:'Fato confirmado',note:'Anotação',roll:'Rolagem de dados',archive:'Estado da campanha',interrupted:'Rascunho interrompido',cancelled:'Tentativa cancelada',restored:'Backup restaurado'};
+ const eventNames={book_header:'Livro adicionado',book_page:'Página do livro',book_done:'Leitura concluída',book_setting:'Uso do livro',roll_offer:'Teste aguardando dados',roll_result:'Resultado registrado',roll_cancel:'Teste cancelado',mechanic:'Mesa mecânica',setup:'Regras da mesa',session:'Sessão confirmada',user:'Ação ou pedido',narrator:'Narração concluída',canon:'Fato confirmado',note:'Anotação',roll:'Rolagem de dados',archive:'Estado da campanha',interrupted:'Rascunho interrompido',cancelled:'Tentativa cancelada',restored:'Backup restaurado'};
  const limits={system:180,setting:2000,tone:1000,rules:7000,characters:7000,objections:3000,style:2000};
  const examples={system:'Ex.: Tormenta20, D&D 5e (edição), sistema próprio…',setting:'Fantasia sombria, investigação, terror, ficção científica…',tone:'Ex.: terror intenso com combates e mortes; descreva o tom desejado.',rules:'Informe regras oficiais/da casa. Se não houver, escreva “sem regras da casa”.',characters:'Nomes, fichas, objetivos e o que já aconteceu. Não vamos presumir fatos.',objections:'Diga o que prefere evitar. Se não houver objeções, escreva “nenhuma”.',style:'Primeira ou terceira pessoa? Texto curto ou detalhado? Mais escolhas ou narrativa livre?'};
  Object.assign(paths,{book:'M12 5C8 2 4 3 2 4v16c4-2 7-1 10 1m0-16c4-3 8-2 10-1v16c-4-2-7-1-10 1V5',dice:'m12 2 10 6v9l-10 5-10-5V8l10-6Zm0 0v11m10-5-10 5-10-5m10 5v9'});
@@ -26,7 +26,7 @@ window.RPG=(()=>{
  function clear(){current=null;state.rpgCurrent=null;state.rpgBefore=null;creatingId=null;$('#rpgBar')?.classList.add('hidden');}
  function destroy(){closePanel();clear();installed=false;$('#rpgStyle')?.remove();$('#rpgCampaignsBtn')?.remove();$('#rpgBar')?.remove();}
  function attach(d){current=d;state.rpgCurrent=d;const bar=$('#rpgBar');if(!bar)return;bar.replaceChildren();bar.classList.toggle('hidden',!d);if(!d)return;
-  const label=el('div','rpgCampaignLabel',d.campaign.title);label.append(el('small','',`${d.campaign.head} registros · ${d.campaign.setup.system}`));bar.append(label,action('Diário','book',()=>openJournal()),action('Dados','dice',()=>openDice()));
+  const label=el('div','rpgCampaignLabel',d.campaign.title);label.append(el('small','',`${d.campaign.head} registros · ${d.campaign.setup.system}`));bar.append(label,action('Diário','book',()=>openJournal()),action('Dados','dice',()=>openDice()),action('Mecânica','dice',()=>window.RPGCombat.open()),action('Livros','book',()=>window.RPGBooks.open()));
   if(d.pending){const warning=action(d.pending.status==='failed'?'Retomar ação pendente':'Conferir ação pendente','down',()=>openPending(),'rpgPendingBadge');bar.append(warning);}
  }
  async function choose(){if(state.busy)return;setMode('narrator',false);if(current){input.focus();return;}await createChat();}
@@ -46,11 +46,12 @@ window.RPG=(()=>{
    else{field=el(key==='system'?'input':'textarea');field.maxLength=limits[key];if(field.tagName==='TEXTAREA')field.rows=key==='characters'||key==='rules'?3:2;field.placeholder=examples[key];}
    field.name=key;field.required=true;field.value=existing?.setup?.[key]||'';wrap.append(field);form.append(wrap);
   }
+  const bookLabel=el('label','','Livro do RPG em PDF (opcional)'),bookInput=el('input');bookInput.type='file';bookInput.accept='application/pdf,.pdf';bookInput.name='bookPdf';bookLabel.append(bookInput,el('p','settingsHelp','Carregar o livro pode tornar a narração mais imersiva e fiel ao sistema. Até 25 MB e 1.000 páginas. Você também pode carregar depois pelo botão Livros.'));if(!existing)form.append(bookLabel);
   const confirmLabel=el('label','rpgCheck'),confirm=el('input');confirm.type='checkbox';confirm.required=true;confirmLabel.append(confirm,document.createTextNode('Revisei as respostas, incluindo minhas objeções, e confirmo a preparação da mesa.'));form.append(confirmLabel);
   const submit=el('button','rpgPrimary',existing?'Salvar revisão das regras':'Confirmar e abrir a mesa');submit.type='submit';form.append(submit);
   form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{const setup={};for(const key of Object.keys(names))setup[key]=form.elements[key].value;let c;
    if(existing){c=(await api('/api/kelly/rpg/campaigns/'+existing.id+'/setup',{method:'POST',body:JSON.stringify({title:title.value,setup,confirmed:true,revision:existing.head})})).campaign;await refresh();closePanel();toast('Revisão registrada no diário.');return;}
-   creatingId ||= crypto.randomUUID();c=(await api('/api/kelly/rpg/campaigns',{method:'POST',body:JSON.stringify({id:creatingId,title:title.value,setup,confirmed:true})})).campaign;creatingId=null;await connect(c,setup.objections);closePanel();
+   creatingId ||= crypto.randomUUID();c=(await api('/api/kelly/rpg/campaigns',{method:'POST',body:JSON.stringify({id:creatingId,title:title.value,setup,confirmed:true})})).campaign;creatingId=null;await connect(c,setup.objections);closePanel();if(bookInput.files[0])await window.RPGBooks.upload(bookInput.files[0]);
   }catch(err){status(body,err.message);}finally{submit.disabled=false;}};
  }
  async function reviewCampaign(id){
@@ -65,7 +66,7 @@ window.RPG=(()=>{
   const d=await api('/api/chats',{method:'POST'});await api('/api/kelly/rpg/campaigns/'+c.id+'/connect',{method:'POST',body:JSON.stringify({chatId:d.chat.id,revision:c.head,confirmed:true,objections})});state.chats.unshift(d.chat);setMode('narrator',false);await openChat(d.chat.id);
   if(!state.currentMessages.length){messages.replaceChildren();const row=addMessage('Mesa preparada. As regras e objeções foram registradas. Quando estiver pronto, descreva sua primeira ação ou peça para abrir a cena.','assistant');row.classList.add('rpgSetupNotice');}
  }
- function decorate(){if(!current)return;for(const row of messages.querySelectorAll('.msgRow')){if(row.querySelector('.rpgSource'))continue;const index=[...messages.querySelectorAll('.msgRow')].indexOf(row),m=state.currentMessages[index];if(m?.rpgSeq)row.prepend(action('E'+m.rpgSeq,'book',()=>openJournal('E'+m.rpgSeq),'textBtn rpgSource'));}}
+ function decorate(){if(!current)return;window.RPGRolls?.decorate();for(const row of messages.querySelectorAll('.msgRow')){if(row.querySelector('.rpgSource'))continue;const index=[...messages.querySelectorAll('.msgRow')].indexOf(row),m=state.currentMessages[index];if(m?.rpgSeq)row.prepend(action('E'+m.rpgSeq,'book',()=>openJournal('E'+m.rpgSeq),'textBtn rpgSource'));}}
  async function openPending(){
   try{await refresh();if(!current.pending)return toast('Não há ação pendente.');const p=current.pending,body=modal('Uma ação precisa de confirmação','O pedido original e o rascunho estão preservados. Um rascunho não define o que aconteceu na história.');
    body.append(el('h3','','Ação do jogador'),el('p','rpgPlain',unpack(p.content).text||'Mensagem com anexos.'),el('h3','','Rascunho não confirmado'),el('pre','rpgDraft',p.draft||'Nenhum trecho recebido ainda.'));
@@ -76,18 +77,19 @@ window.RPG=(()=>{
    body.append(action('Cancelar tentativa e preservar o registro','close',async()=>{try{await api(base()+'/cancel',{method:'POST',body:JSON.stringify({requestId:p.request_id,reason:'Tentativa cancelada explicitamente pelo usuário.'})});await refresh();closePanel();toast('Tentativa cancelada. O registro foi preservado.');}catch(e){status(body,e.message);}},'smallBtn'));
   }catch(e){toast(e.message);}
  }
- async function send(retry=null){
-  if(state.busy||state.reading)return;if(!current||!state.chatId)return openStart();if(!handles(state.mode))return;
-  if(current.pending&&!retry)return openPending();const text=input.value.trim(),attachments=[...state.attachments];if(!text&&!attachments.length)return;
-  const requestId=retry?.request_id||crypto.randomUUID(),chatId=state.chatId,user=state.me.user.id;let live,done=false;
+ async function send(retry=null,automatic=null){
+  if(state.busy||state.reading)return;if(window.RPGBooks?.busy)return toast('Pause a leitura do livro antes de narrar.');if(!current||!state.chatId)return openStart();if(!handles(state.mode))return;
+  if(current.pending&&!retry)return openPending();const text=automatic?'Continuar a cena com o resultado registrado [E'+automatic.seq+'].':input.value.trim(),attachments=automatic?[]:[...state.attachments];if(!text&&!attachments.length)return;
+  const requestId=automatic?.payload.continuationRequestId||retry?.request_id||crypto.randomUUID(),chatId=state.chatId,user=state.me.user.id;let live,done=false,completedEvent=null;
   setBusy(true);state.controller=new AbortController();
   try{
-   if(messages.querySelector('.welcome,.rpgSetupNotice'))messages.replaceChildren();if(!retry)addMessage(attachments.length?JSON.stringify({_zulu:5,text,attachments}):text,'user');input.value='';clearAttachments();resize();live=liveMessage();live.row.classList.add('rpgProvisional');scrollToEnd(true);
-   const response=await authorizedFetch('/api/chats/'+chatId+'/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,attachments,stream:true,mode:'narrator',requestId,revision:current.campaign.head}),signal:state.controller.signal});
-   await readNDJSON(response,event=>{if(event.type==='delta')live.delta(event.text);if(event.type==='memory')$('#status').textContent='Diário consultado';if(event.type==='error')throw Error(event.error);if(event.type==='done'){done=true;live.row.classList.remove('rpgProvisional');live.finish(event.reply);current.campaign.head=event.rpg.head;current.pending=null;attach(current);}});
+   if(messages.querySelector('.welcome,.rpgSetupNotice'))messages.replaceChildren();if(!retry)addMessage(attachments.length?JSON.stringify({_zulu:5,text,attachments}):text,'user');if(!automatic){input.value='';clearAttachments();resize();}live=liveMessage();live.row.classList.add('rpgProvisional');scrollToEnd(true);
+   const response=await authorizedFetch('/api/chats/'+chatId+'/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,attachments,stream:true,mode:'narrator',requestId,revision:current.campaign.head,...(automatic?{rollContinuationSeq:automatic.seq}:{})}),signal:state.controller.signal});
+   await readNDJSON(response,event=>{if(event.type==='delta')live.delta(event.text);if(event.type==='memory')$('#status').textContent='Conferindo a narração';if(event.type==='error')throw Error(event.error);if(event.type==='done'){done=true;completedEvent=event;current.campaign.head=event.rpg.head;current.pending=null;attach(current);}});
+   if(completedEvent){await live.reveal(completedEvent.reply);live.row.classList.remove('rpgProvisional');live.finish(completedEvent.reply);}
    if(!done)throw Error('A conexão terminou antes da confirmação. Confira a ação pendente no diário.');
-  }catch(e){if(state.me?.user?.id!==user)return;live?.finish(live.raw||'',e.name==='AbortError'?'Interrompido. A ação está no diário; confira a tentativa pendente.':e.message,true);if(!done){input.value=text;state.attachments=attachments;drawAttachments();resize();}toast(e.name==='AbortError'?'Confira a ação pendente antes de continuar.':e.message);}
-  finally{live?.dispose();setBusy(false);state.controller=null;if(state.me?.user?.id===user){await refresh().catch(e=>toast(e.message));if(done&&state.chatId===chatId)await openChat(chatId);}}
+  }catch(e){if(state.me?.user?.id!==user)return;live?.finish(live.raw||'',e.name==='AbortError'?'Interrompido. A ação está no diário; confira a tentativa pendente.':e.message,true);if(!done&&!automatic){input.value=text;state.attachments=attachments;drawAttachments();resize();}toast(e.name==='AbortError'?'Confira a ação pendente antes de continuar.':e.message);}
+  finally{live?.dispose();setBusy(false);state.controller=null;if(state.me?.user?.id===user){await refresh().catch(e=>toast(e.message));if(done&&state.chatId===chatId)await openChat(chatId,{preserveDraft:true});}}
  }
  async function openJournal(query=''){
   if(!current)return openStart();if(state.busy)return toast('Aguarde ou interrompa a narração antes de abrir o diário.');await refresh().catch(e=>toast(e.message));const body=modal('Diário da campanha',current.campaign.title+' · registros com fontes e correções preservadas');
@@ -133,5 +135,6 @@ window.RPG=(()=>{
   }catch(e){feedback.textContent=e.message+' Você pode selecionar o mesmo arquivo para retomar uma importação interrompida.';}finally{restoreBusy=false;}
  }
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!restoreBusy)closePanel();});
- return {handles,install,destroy,clear,attach,choose,welcome,openStart,openJournal,decorate,send,exportCampaign};
+ async function continueRoll(event){if(state.busy)return;await refresh();return send(null,event);}
+ return {continueRoll,mechanicsUI:{modal,status,base,refresh,closePanel,authorizedFetch},handles,install,destroy,clear,attach,choose,welcome,openStart,openJournal,decorate,send,exportCampaign};
 })();
